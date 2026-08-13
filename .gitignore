@@ -22,4 +22,6 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
-/otp-data
+/otp-data/*
+!/otp-data/setup.sh
+!/otp-data/README.md
