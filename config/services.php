@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    'otp' => [
+        'url' => env('OTP_URL', 'http://localhost:8080/otp/routers/default/index/graphql'),
+    ],
+
 ];

@@ -1,0 +1,11 @@
+services:
+  otp:
+    image: opentripplanner/opentripplanner:2.5.0
+    container_name: sakayph-otp
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xmx4G"
+    volumes:
+      - ./otp-data:/var/opentripplanner
+    ports:
+      - "8080:8080"
+    command: --build --serve
