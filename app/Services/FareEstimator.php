@@ -2,15 +2,17 @@
 
 namespace App\Services;
 
+use App\Models\Fare;
+
 class FareEstimator
 {
     /**
-     * Map an OTP leg `mode` to a config/fares.php key.
+     * Map an OTP leg `mode` to a `fares` table `mode` row.
      *
      * OTP's GTFS-derived `mode` only distinguishes broad categories (WALK, BUS,
      * RAIL, SUBWAY, TRAM, ...), not jeepney-vs-bus or LRT-vs-MRT — that distinction
-     * isn't in the feed. Phase 1's stub fares are flat per category, so this is a
-     * best-effort mapping, not a precise one.
+     * isn't in the feed. Fares are flat per category, so this is a best-effort
+     * mapping, not a precise one.
      */
     private const MODE_MAP = [
         'BUS' => 'bus',
@@ -36,7 +38,8 @@ class FareEstimator
             }
 
             $fareKey = self::MODE_MAP[$leg['mode'] ?? ''] ?? 'default';
-            $fare = (float) config("fares.{$fareKey}", config('fares.default'));
+            $fare = (float) (Fare::where('mode', $fareKey)->value('base_fare')
+                ?? Fare::where('mode', 'default')->value('base_fare'));
 
             $priced[] = [...$leg, 'fare' => $fare];
             $total += $fare;
