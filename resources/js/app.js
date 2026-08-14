@@ -60,9 +60,7 @@ if (mapEl) {
 
 const statusEl = document.getElementById('status-message');
 const resultsEl = document.getElementById('results');
-const fareEl = document.getElementById('result-fare');
-const etaEl = document.getElementById('result-eta');
-const listEl = document.getElementById('itinerary-list');
+const optionsListEl = document.getElementById('options-list');
 
 const MODE_ICON = {
     WALK: 'Footprints',
@@ -133,37 +131,73 @@ function drawRoute(legs) {
     }
 }
 
-function renderItinerary(data) {
-    fareEl.textContent = `₱${Number(data.totalFare).toFixed(2)}`;
-    etaEl.textContent = `${Math.round(data.totalDuration / 60)} min`;
+function legLine(leg) {
+    const iconName = MODE_ICON[leg.mode] ?? 'Bus';
+    const label = leg.route?.shortName ?? leg.route?.longName ?? leg.mode;
+    const fareLabel = leg.fare > 0 ? ` · ₱${Number(leg.fare).toFixed(2)}` : '';
+    const kebabIcon = iconName.replace(/[A-Z]/g, (m, i) => (i ? '-' : '') + m.toLowerCase());
 
-    listEl.innerHTML = '';
+    return `
+        <i data-lucide="${kebabIcon}" class="w-4 h-4 mt-0.5 shrink-0"></i>
+        <div>
+            <p class="font-medium">${label}</p>
+            <p class="text-foreground-secondary">${leg.from?.name ?? ''} → ${leg.to?.name ?? ''}${fareLabel}</p>
+        </div>
+    `;
+}
 
-    for (const leg of data.legs) {
-        if (leg.mode === 'WALK' && leg.distance < 50) {
-            continue;
-        }
+function selectOption(option, cardEl) {
+    for (const el of optionsListEl.querySelectorAll('[data-option-card]')) {
+        el.classList.remove('border-foreground/40');
+        el.querySelector('[data-option-detail]').classList.add('hidden');
+    }
 
+    cardEl.classList.add('border-foreground/40');
+    cardEl.querySelector('[data-option-detail]').classList.remove('hidden');
+
+    drawRoute(option.legs);
+}
+
+function renderOptions(options) {
+    optionsListEl.innerHTML = '';
+
+    options.forEach((option, index) => {
         const li = document.createElement('li');
-        li.className = 'flex gap-3 text-sm';
+        li.dataset.optionCard = 'true';
+        li.className = 'rounded-lg border border-black/10 dark:border-white/10 p-3 cursor-pointer flex flex-col gap-2';
 
-        const iconName = MODE_ICON[leg.mode] ?? 'Bus';
-        const label = leg.route?.shortName ?? leg.route?.longName ?? leg.mode;
-        const fareLabel = leg.fare > 0 ? ` · ₱${Number(leg.fare).toFixed(2)}` : '';
+        const legsHtml = option.legs
+            .filter((leg) => !(leg.mode === 'WALK' && leg.distance < 50))
+            .map((leg) => `<li class="flex gap-3 text-sm">${legLine(leg)}</li>`)
+            .join('');
+
+        const instructionsHtml = option.instructions.map((line) => `<li>${line}</li>`).join('');
+        const transferLabel = `${option.transferCount} transfer${option.transferCount === 1 ? '' : 's'}`;
 
         li.innerHTML = `
-            <i data-lucide="${iconName.replace(/[A-Z]/g, (m, i) => (i ? '-' : '') + m.toLowerCase())}" class="w-4 h-4 mt-0.5 shrink-0"></i>
-            <div>
-                <p class="font-medium">${label}</p>
-                <p class="text-foreground-secondary">${leg.from?.name ?? ''} → ${leg.to?.name ?? ''}${fareLabel}</p>
+            <div class="flex items-center justify-between text-sm">
+                <span class="inline-flex items-center gap-2">
+                    <span class="text-base font-semibold">₱${Number(option.totalFare).toFixed(2)}</span>
+                    <span class="text-foreground-secondary">${Math.round(option.totalDuration / 60)} min</span>
+                </span>
+                <span class="text-xs rounded-full border border-black/10 dark:border-white/10 px-2 py-0.5">${option.difficulty}</span>
+            </div>
+            <p class="text-xs text-foreground-secondary">${transferLabel}</p>
+            <div data-option-detail class="hidden flex flex-col gap-3 pt-2 border-t border-black/10 dark:border-white/10">
+                <ol class="flex flex-col gap-1 text-xs text-foreground-secondary list-decimal list-inside">${instructionsHtml}</ol>
+                <ol class="flex flex-col gap-3">${legsHtml}</ol>
             </div>
         `;
 
-        listEl.appendChild(li);
-    }
+        li.addEventListener('click', () => selectOption(option, li));
+        optionsListEl.appendChild(li);
+
+        if (index === 0) {
+            selectOption(option, li);
+        }
+    });
 
     createIcons({ icons: ICONS });
-    drawRoute(data.legs);
 }
 
 async function findRoute() {
@@ -194,7 +228,7 @@ async function findRoute() {
         }
 
         setStatus(null);
-        renderItinerary(data);
+        renderOptions(data.options);
     } catch {
         setStatus('Could not reach the server.');
     }
