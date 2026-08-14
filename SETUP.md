@@ -28,6 +28,7 @@ npm install
 cp .env.example .env
 php artisan key:generate
 touch database/database.sqlite
+php artisan migrate --seed
 ```
 
 ## 5. Prepare the routing data (one-time, ~5-10 min)

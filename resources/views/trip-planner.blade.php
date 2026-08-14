@@ -35,16 +35,7 @@
             <p id="status-message" class="hidden text-sm rounded-lg border border-black/10 dark:border-white/10 px-3 py-2"></p>
 
             <div id="results" class="flex flex-col gap-4">
-                <div class="flex items-center justify-between text-sm">
-                    <span class="text-foreground-secondary">Total fare</span>
-                    <span id="result-fare" class="text-base font-semibold">—</span>
-                </div>
-                <div class="flex items-center justify-between text-sm">
-                    <span class="text-foreground-secondary">ETA</span>
-                    <span id="result-eta" class="text-base font-semibold">—</span>
-                </div>
-
-                <ol id="itinerary-list" class="flex flex-col gap-3 mt-2"></ol>
+                <ol id="options-list" class="flex flex-col gap-3"></ol>
 
                 <p class="text-xs text-foreground-secondary pt-2 border-t border-black/10 dark:border-white/10">
                     Live from <code>/api/trip-plan</code> — requires OTP to be running with a built graph.

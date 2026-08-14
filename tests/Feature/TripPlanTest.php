@@ -2,15 +2,26 @@
 
 namespace Tests\Feature;
 
+use Database\Seeders\FareSeeder;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class TripPlanTest extends TestCase
 {
+    use RefreshDatabase;
+
     private const ENDPOINT = '/api/trip-plan?from_lat=14.657&from_lon=121.0327&to_lat=14.5578&to_lon=121.0244';
 
-    public function test_returns_priced_itinerary_on_success(): void
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->seed(FareSeeder::class);
+    }
+
+    public function test_returns_ranked_priced_options_on_success(): void
     {
         Http::fake([
             '*' => Http::response([
@@ -18,12 +29,21 @@ class TripPlanTest extends TestCase
                     'plan' => [
                         'itineraries' => [
                             [
+                                'duration' => 3600,
+                                'walkDistance' => 900.0,
+                                'legs' => [
+                                    ['mode' => 'WALK', 'distance' => 300.0, 'to' => ['name' => 'Stop A']],
+                                    ['mode' => 'BUS', 'distance' => 3000.0, 'route' => ['shortName' => 'Bus 1'], 'to' => ['name' => 'Stop B']],
+                                    ['mode' => 'SUBWAY', 'distance' => 8000.0, 'route' => ['shortName' => 'MRT-3'], 'to' => ['name' => 'Stop C']],
+                                    ['mode' => 'BUS', 'distance' => 2000.0, 'route' => ['shortName' => 'Bus 2'], 'to' => ['name' => 'Destination']],
+                                ],
+                            ],
+                            [
                                 'duration' => 2520,
                                 'walkDistance' => 450.0,
                                 'legs' => [
-                                    ['mode' => 'WALK', 'distance' => 450.0],
-                                    ['mode' => 'BUS', 'distance' => 3000.0],
-                                    ['mode' => 'SUBWAY', 'distance' => 8000.0],
+                                    ['mode' => 'WALK', 'distance' => 450.0, 'to' => ['name' => 'Stop A']],
+                                    ['mode' => 'BUS', 'distance' => 3000.0, 'route' => ['shortName' => 'Bus 1'], 'to' => ['name' => 'Destination']],
                                 ],
                             ],
                         ],
@@ -34,12 +54,15 @@ class TripPlanTest extends TestCase
 
         $response = $this->getJson(self::ENDPOINT);
 
-        $response->assertOk()->assertJson([
-            'totalFare' => 13.0 + 20.0,
-            'totalDuration' => 2520,
-            'walkDistance' => 450.0,
-        ]);
-        $response->assertJsonCount(3, 'legs');
+        $response->assertOk();
+        $response->assertJsonCount(2, 'options');
+
+        $response->assertJsonPath('options.0.transferCount', 0);
+        $response->assertJsonPath('options.0.totalFare', 13);
+        $response->assertJsonPath('options.0.difficulty', 'Easy');
+        $response->assertJsonPath('options.1.transferCount', 2);
+        $response->assertJsonPath('options.1.totalFare', 46);
+        $response->assertJsonPath('options.1.difficulty', 'Moderate');
     }
 
     public function test_returns_no_route_when_otp_finds_nothing(): void
@@ -53,7 +76,7 @@ class TripPlanTest extends TestCase
         $response = $this->getJson(self::ENDPOINT);
 
         $response->assertOk()->assertJson([
-            'legs' => [],
+            'options' => [],
             'error' => 'no_route',
         ]);
     }

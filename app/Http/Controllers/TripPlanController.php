@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\FareEstimator;
+use App\Services\RouteScorer;
 use App\Services\TripPlannerService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -12,6 +13,7 @@ class TripPlanController extends Controller
 {
     public function __construct(
         private readonly TripPlannerService $planner,
+        private readonly RouteScorer $scorer,
         private readonly FareEstimator $fares,
     ) {}
 
@@ -39,19 +41,27 @@ class TripPlanController extends Controller
 
         if (empty($itineraries)) {
             return response()->json([
-                'legs' => [],
+                'options' => [],
                 'error' => 'no_route',
             ]);
         }
 
-        $itinerary = $itineraries[0];
-        $priced = $this->fares->estimate($itinerary['legs']);
+        $ranked = $this->scorer->rank($itineraries);
 
-        return response()->json([
-            'legs' => $priced['legs'],
-            'totalFare' => $priced['totalFare'],
-            'totalDuration' => $itinerary['duration'],
-            'walkDistance' => $itinerary['walkDistance'],
-        ]);
+        $options = array_map(function (array $itinerary) {
+            $priced = $this->fares->estimate($itinerary['legs']);
+
+            return [
+                'legs' => $priced['legs'],
+                'totalFare' => $priced['totalFare'],
+                'totalDuration' => $itinerary['duration'],
+                'walkDistance' => $itinerary['walkDistance'],
+                'transferCount' => $itinerary['transferCount'],
+                'difficulty' => $itinerary['difficulty'],
+                'instructions' => $itinerary['instructions'],
+            ];
+        }, $ranked);
+
+        return response()->json(['options' => $options]);
     }
 }

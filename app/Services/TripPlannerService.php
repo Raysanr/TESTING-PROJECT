@@ -8,12 +8,15 @@ use RuntimeException;
 
 class TripPlannerService
 {
+    private const NUM_ITINERARIES = 5;
+
     private const QUERY = <<<'GRAPHQL'
-        query TripPlan($fromLat: Float!, $fromLon: Float!, $toLat: Float!, $toLon: Float!) {
+        query TripPlan($fromLat: Float!, $fromLon: Float!, $toLat: Float!, $toLon: Float!, $numItineraries: Int!) {
             plan(
                 from: { lat: $fromLat, lon: $fromLon }
                 to: { lat: $toLat, lon: $toLon }
                 transportModes: [{ mode: WALK }, { mode: TRANSIT }]
+                numItineraries: $numItineraries
             ) {
                 itineraries {
                     duration
@@ -48,6 +51,7 @@ class TripPlannerService
                     'fromLon' => $fromLon,
                     'toLat' => $toLat,
                     'toLon' => $toLon,
+                    'numItineraries' => self::NUM_ITINERARIES,
                 ],
             ]);
         } catch (ConnectionException $e) {
