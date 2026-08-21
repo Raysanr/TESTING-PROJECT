@@ -1,10 +1,10 @@
 import './bootstrap';
 import L from 'leaflet';
-import { createIcons, Bus, TrainFront, Footprints, Search, MapPin, Bookmark, X } from 'lucide';
+import { createIcons, Bus, TrainFront, Footprints, Search, MapPin, Bookmark, X, Share2 } from 'lucide';
 import { listCommutes, saveCommute, removeCommute } from './savedCommutes';
 import { cacheTripPlan, getCachedTripPlan } from './offlineCache';
 
-const ICONS = { Bus, TrainFront, Footprints, Search, MapPin, Bookmark, X };
+const ICONS = { Bus, TrainFront, Footprints, Search, MapPin, Bookmark, X, Share2 };
 createIcons({ icons: ICONS });
 
 let ORIGIN = [14.6570, 121.0327]; // SM North EDSA
@@ -183,7 +183,10 @@ function renderOptions(options) {
                     <span class="text-base font-semibold">₱${Number(option.totalFare).toFixed(2)}</span>
                     <span class="text-foreground-secondary">${Math.round(option.totalDuration / 60)} min</span>
                 </span>
-                <span class="text-xs rounded-full border border-black/10 dark:border-white/10 px-2 py-0.5">${option.difficulty}</span>
+                <span class="inline-flex items-center gap-2">
+                    <span class="text-xs rounded-full border border-black/10 dark:border-white/10 px-2 py-0.5">${option.difficulty}</span>
+                    <button type="button" data-share-btn aria-label="Share this route"><i data-lucide="share-2" class="w-3.5 h-3.5"></i></button>
+                </span>
             </div>
             <p class="text-xs text-foreground-secondary">${transferLabel}</p>
             <div data-option-detail class="hidden flex flex-col gap-3 pt-2 border-t border-black/10 dark:border-white/10">
@@ -191,6 +194,11 @@ function renderOptions(options) {
                 <ol class="flex flex-col gap-3">${legsHtml}</ol>
             </div>
         `;
+
+        li.querySelector('[data-share-btn]').addEventListener('click', (event) => {
+            event.stopPropagation();
+            shareRoute();
+        });
 
         li.addEventListener('click', () => selectOption(option, li));
         optionsListEl.appendChild(li);
@@ -239,6 +247,51 @@ function loadCommute(commute) {
     DESTINATION = [commute.toLat, commute.toLon];
     activeCommuteId = commute.id;
     findRoute();
+}
+
+const toastEl = document.getElementById('toast');
+
+function showToast(message) {
+    toastEl.textContent = message;
+    toastEl.classList.remove('hidden');
+    setTimeout(() => toastEl.classList.add('hidden'), 3000);
+}
+
+function buildShareUrl(fromLat, fromLon, toLat, toLon) {
+    const url = new URL(window.location.origin + window.location.pathname);
+    url.searchParams.set('from_lat', fromLat);
+    url.searchParams.set('from_lon', fromLon);
+    url.searchParams.set('to_lat', toLat);
+    url.searchParams.set('to_lon', toLon);
+
+    return url.toString();
+}
+
+async function shareRoute() {
+    const url = buildShareUrl(ORIGIN[0], ORIGIN[1], DESTINATION[0], DESTINATION[1]);
+
+    if (navigator.share) {
+        try {
+            await navigator.share({ url });
+
+            return;
+        } catch {
+            return;
+        }
+    }
+
+    if (navigator.clipboard?.writeText) {
+        try {
+            await navigator.clipboard.writeText(url);
+            showToast('Link copied to clipboard');
+
+            return;
+        } catch {
+            // fall through to manual display
+        }
+    }
+
+    window.prompt('Copy this link:', url);
 }
 
 if (saveCommuteBtnEl) {
@@ -326,6 +379,13 @@ if (form) {
         event.preventDefault();
         findRoute();
     });
+}
+
+const urlParams = new URLSearchParams(window.location.search);
+
+if (urlParams.has('from_lat') && urlParams.has('from_lon') && urlParams.has('to_lat') && urlParams.has('to_lon')) {
+    ORIGIN = [Number(urlParams.get('from_lat')), Number(urlParams.get('from_lon'))];
+    DESTINATION = [Number(urlParams.get('to_lat')), Number(urlParams.get('to_lon'))];
 }
 
 findRoute();

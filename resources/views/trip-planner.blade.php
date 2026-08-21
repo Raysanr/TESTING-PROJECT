@@ -59,5 +59,6 @@
             <div id="map" class="absolute inset-0"></div>
         </main>
     </div>
+    <p id="toast" class="hidden fixed bottom-4 right-4 rounded-lg border border-black/10 dark:border-white/10 bg-background px-3 py-2 text-sm shadow-lg"></p>
 </body>
 </html>
