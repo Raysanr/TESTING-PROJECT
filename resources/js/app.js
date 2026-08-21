@@ -48,6 +48,7 @@ function decodePolyline(encoded) {
 const mapEl = document.getElementById('map');
 let map, routeLayer;
 let activeCommuteId = null;
+let lastTripPlan = null;
 
 if (mapEl) {
     map = L.map(mapEl, { zoomControl: true }).setView(ORIGIN, 13);
@@ -162,6 +163,7 @@ function selectOption(option, cardEl) {
 }
 
 function renderOptions(options) {
+    resultsEl.querySelector('[data-offline-banner]')?.remove();
     optionsListEl.innerHTML = '';
 
     options.forEach((option, index) => {
@@ -295,7 +297,7 @@ async function shareRoute() {
 }
 
 if (saveCommuteBtnEl) {
-    saveCommuteBtnEl.addEventListener('click', () => {
+    saveCommuteBtnEl.addEventListener('click', async () => {
         const commute = saveCommute({
             label: commuteLabelInputEl.value,
             fromLat: ORIGIN[0],
@@ -306,6 +308,14 @@ if (saveCommuteBtnEl) {
         activeCommuteId = commute.id;
         commuteLabelInputEl.value = '';
         renderSavedCommutes();
+
+        if (lastTripPlan) {
+            try {
+                await cacheTripPlan(commute.id, lastTripPlan);
+            } catch {
+                // caching is best-effort; don't block the save
+            }
+        }
     });
 }
 
@@ -349,6 +359,7 @@ async function findRoute() {
             }
         }
 
+        lastTripPlan = data;
         setStatus(null);
         renderOptions(data.options);
     } catch {
@@ -359,7 +370,7 @@ async function findRoute() {
                 setStatus(null);
                 renderOptions(cached.options);
                 statusEl.textContent = '';
-                resultsEl.insertAdjacentHTML('afterbegin', '<p class="text-xs text-foreground-secondary mb-2">Showing offline result — last saved when you were connected.</p>');
+                resultsEl.insertAdjacentHTML('afterbegin', '<p data-offline-banner class="text-xs text-foreground-secondary mb-2">Showing offline result — last saved when you were connected.</p>');
 
                 return;
             }
