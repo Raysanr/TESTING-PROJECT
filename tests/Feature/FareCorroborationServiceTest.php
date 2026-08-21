@@ -80,4 +80,17 @@ class FareCorroborationServiceTest extends TestCase
 
         $this->assertNull($result);
     }
+
+    public function test_does_not_update_when_group_spread_exceeds_true_tolerance(): void
+    {
+        Fare::create(['mode' => 'jeepney', 'base_fare' => 13.00]);
+        FareReport::create(['mode' => 'jeepney', 'reported_fare' => 14.00]);
+        FareReport::create(['mode' => 'jeepney', 'reported_fare' => 15.00]);
+        FareReport::create(['mode' => 'jeepney', 'reported_fare' => 16.00]);
+
+        $result = (new FareCorroborationService())->evaluate('jeepney');
+
+        $this->assertNull($result);
+        $this->assertSame(13.0, Fare::where('mode', 'jeepney')->value('base_fare'));
+    }
 }

@@ -50,7 +50,7 @@ class FareCorroborationService
     {
         foreach ($reports as $anchor) {
             $group = $reports->filter(
-                fn (FareReport $report) => abs($report->reported_fare - $anchor->reported_fare) <= self::TOLERANCE
+                fn (FareReport $report) => abs($report->reported_fare - $anchor->reported_fare) <= self::TOLERANCE / 2
             );
 
             if ($group->count() >= self::MIN_CORROBORATING_REPORTS) {

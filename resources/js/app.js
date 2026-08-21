@@ -156,7 +156,10 @@ function legLine(leg) {
 
 function attachReportFareHandlers(container) {
     for (const btn of container.querySelectorAll('[data-report-fare-btn]')) {
-        btn.addEventListener('click', () => showReportFareForm(btn));
+        btn.addEventListener('click', (event) => {
+            event.stopPropagation();
+            showReportFareForm(btn);
+        });
     }
 }
 
@@ -174,17 +177,25 @@ function showReportFareForm(btn) {
         </div>
     `;
 
-    container.querySelector('[data-report-fare-submit]').addEventListener('click', () => submitFareReport(mode, container));
+    container.querySelector('[data-report-fare-submit]').addEventListener('click', (event) => {
+        event.stopPropagation();
+        submitFareReport(mode, container);
+    });
 }
 
 async function submitFareReport(mode, container) {
+    const submitBtn = container.querySelector('[data-report-fare-submit]');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+    }
+
     const input = container.querySelector('[data-report-fare-input]');
     const reportedFare = Number(input.value);
 
     try {
         const response = await fetch('/api/fare-reports', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify({ mode, reported_fare: reportedFare }),
         });
 
