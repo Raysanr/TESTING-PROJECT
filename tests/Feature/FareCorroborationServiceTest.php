@@ -57,9 +57,9 @@ class FareCorroborationServiceTest extends TestCase
     {
         Fare::create(['mode' => 'jeepney', 'base_fare' => 13.00]);
 
-        FareReport::create(['mode' => 'jeepney', 'reported_fare' => 15.00, 'created_at' => now()->subDays(20)]);
-        FareReport::create(['mode' => 'jeepney', 'reported_fare' => 15.00, 'created_at' => now()->subDays(20)]);
-        FareReport::create(['mode' => 'jeepney', 'reported_fare' => 15.00, 'created_at' => now()->subDays(20)]);
+        FareReport::forceCreate(['mode' => 'jeepney', 'reported_fare' => 15.00, 'created_at' => now()->subDays(20)]);
+        FareReport::forceCreate(['mode' => 'jeepney', 'reported_fare' => 15.00, 'created_at' => now()->subDays(20)]);
+        FareReport::forceCreate(['mode' => 'jeepney', 'reported_fare' => 15.00, 'created_at' => now()->subDays(20)]);
 
         $result = (new FareCorroborationService())->evaluate('jeepney');
 
@@ -71,9 +71,9 @@ class FareCorroborationServiceTest extends TestCase
     {
         Fare::create(['mode' => 'jeepney', 'base_fare' => 13.00]);
 
-        FareReport::create(['mode' => 'jeepney', 'reported_fare' => 15.00, 'applied' => true]);
-        FareReport::create(['mode' => 'jeepney', 'reported_fare' => 15.00, 'applied' => true]);
-        FareReport::create(['mode' => 'jeepney', 'reported_fare' => 15.00, 'applied' => true]);
+        FareReport::forceCreate(['mode' => 'jeepney', 'reported_fare' => 15.00, 'applied' => true]);
+        FareReport::forceCreate(['mode' => 'jeepney', 'reported_fare' => 15.00, 'applied' => true]);
+        FareReport::forceCreate(['mode' => 'jeepney', 'reported_fare' => 15.00, 'applied' => true]);
         FareReport::create(['mode' => 'jeepney', 'reported_fare' => 15.00]);
 
         $result = (new FareCorroborationService())->evaluate('jeepney');
