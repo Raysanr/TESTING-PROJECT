@@ -8,7 +8,7 @@ Run `./setup.sh` from this folder to fetch and prepare everything below automati
 
 ## Map-matching (optional, fixes zigzag transit-leg rendering)
 
-`gtfs-jeepney-bus.zip`'s `shapes.txt` is sparse (521 points across the whole feed), so OTP draws straight lines between waypoints instead of following roads. `php artisan gtfs:map-match` fixes this by snapping the shapes against OTP's own street router and rewriting `gtfs-jeepney-bus.zip` in place — run it once, after `setup.sh` and before `docker compose up`:
+`gtfs-jeepney-bus.zip`'s `shapes.txt` is sparse (521 points across the whole feed), so OTP draws straight lines between waypoints instead of following roads. `php artisan gtfs:map-match` fixes this by snapping the shapes against OTP's own street router and rewriting `gtfs-jeepney-bus.zip` in place — run it once, after `setup.sh` and before `docker compose up`. **Only bus/jeepney shapes (`route_type` 3) are matched** — rail (LRT-1/2, MRT-3, PNR) runs on dedicated track, not roads, so CAR-mode street routing would corrupt it; rail shapes are left exactly as the source feed provides them:
 
 ```
 ./setup.sh

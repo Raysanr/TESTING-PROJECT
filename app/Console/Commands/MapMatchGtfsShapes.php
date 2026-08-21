@@ -59,21 +59,27 @@ class MapMatchGtfsShapes extends Command
         }
 
         $groupedShapes = $this->parseShapes($extractedDir);
+        $busShapeIds = $this->classifyBusShapeIds($extractedDir);
 
-        $meanSpacing = $this->meanPointSpacingMeters($groupedShapes);
+        $roadShapes = array_intersect_key($groupedShapes, $busShapeIds);
+        $nonRoadShapes = array_diff_key($groupedShapes, $busShapeIds);
+
+        $meanSpacing = $this->meanPointSpacingMeters($roadShapes);
 
         if ($meanSpacing < self::ALREADY_MATCHED_SPACING_THRESHOLD_METERS && ! $this->option('force')) {
             $this->error(sprintf(
-                "shapes.txt already looks map-matched (mean point spacing %.0fm). Re-running will over-subdivide it. Run otp-data/setup.sh for a pristine feed first, or pass --force.",
+                "shapes.txt's bus/jeepney shapes already look map-matched (mean point spacing %.0fm). Re-running will over-subdivide them. Run otp-data/setup.sh for a pristine feed first, or pass --force.",
                 $meanSpacing,
             ));
 
             return self::FAILURE;
         }
 
-        $this->info('Matching '.count($groupedShapes).' shapes against OTP...');
+        $this->info('Matching '.count($roadShapes).' bus/jeepney shapes against OTP ('.count($nonRoadShapes)." rail shapes left untouched — CAR-mode street routing doesn't apply to trains)...");
 
-        [$matchedShapes, $stats] = $this->buildMatchedShapes($groupedShapes);
+        [$matchedRoadShapes, $stats] = $this->buildMatchedShapes($roadShapes);
+
+        $matchedShapes = $matchedRoadShapes + $nonRoadShapes;
 
         $this->writeShapesCsv($extractedDir, $matchedShapes);
 
@@ -162,6 +168,49 @@ class MapMatchGtfsShapes extends Command
         }
 
         return $grouped;
+    }
+
+    /**
+     * CAR-mode street routing only makes sense for shapes that actually run on
+     * roads. Rail (route_type 0/1/2 — tram/subway/rail) runs on dedicated
+     * track, not streets, so matching it against OTP's CAR router would snap
+     * it to nearby roads instead of preserving its real alignment. Only
+     * route_type 3 (bus, which this feed also uses for jeepneys) is eligible.
+     *
+     * @return array<string, true> shape_id => true, for shapes used by a bus/jeepney route
+     */
+    private function classifyBusShapeIds(string $extractedDir): array
+    {
+        $routeTypeByRouteId = [];
+        $routesHandle = fopen($extractedDir.'/routes.txt', 'r');
+        $routesHeader = fgetcsv($routesHandle, escape: '');
+        $routeIdIndex = array_search('route_id', $routesHeader);
+        $routeTypeIndex = array_search('route_type', $routesHeader);
+
+        while (($row = fgetcsv($routesHandle, escape: '')) !== false) {
+            $routeTypeByRouteId[$row[$routeIdIndex]] = $row[$routeTypeIndex];
+        }
+
+        fclose($routesHandle);
+
+        $busShapeIds = [];
+        $tripsHandle = fopen($extractedDir.'/trips.txt', 'r');
+        $tripsHeader = fgetcsv($tripsHandle, escape: '');
+        $tripRouteIdIndex = array_search('route_id', $tripsHeader);
+        $tripShapeIdIndex = array_search('shape_id', $tripsHeader);
+
+        while (($row = fgetcsv($tripsHandle, escape: '')) !== false) {
+            $shapeId = $row[$tripShapeIdIndex] ?? '';
+            $routeId = $row[$tripRouteIdIndex] ?? '';
+
+            if ($shapeId !== '' && ($routeTypeByRouteId[$routeId] ?? null) === '3') {
+                $busShapeIds[$shapeId] = true;
+            }
+        }
+
+        fclose($tripsHandle);
+
+        return $busShapeIds;
     }
 
     private function cleanup(string $extractedDir): void
