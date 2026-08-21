@@ -257,6 +257,146 @@ class MapMatchGtfsShapes extends Command
         return $busShapeIds;
     }
 
+    /**
+     * @return list<array{lat: float, lon: float}>|null null if the relation
+     *         couldn't be resolved into a single connected chain (missing
+     *         way, gap beyond tolerance, or the osmium subprocess failed)
+     */
+    private function extractRailShape(string $osmPbfPath, int $relationId): ?array
+    {
+        $relationPbf = sys_get_temp_dir().'/gtfs-map-match-rail-'.$relationId.'-'.uniqid().'.osm.pbf';
+        $relationGeoJson = $relationPbf.'.geojson';
+
+        exec(sprintf(
+            'osmium getid -r %s r%d -o %s --overwrite 2>&1',
+            escapeshellarg($osmPbfPath),
+            $relationId,
+            escapeshellarg($relationPbf),
+        ), $getidOutput, $getidExitCode);
+
+        if ($getidExitCode !== 0 || ! file_exists($relationPbf)) {
+            @unlink($relationPbf);
+
+            return null;
+        }
+
+        $opl = shell_exec(sprintf('osmium cat %s -f opl 2>/dev/null', escapeshellarg($relationPbf)));
+        $relationLine = null;
+
+        foreach (explode("\n", (string) $opl) as $line) {
+            if (str_starts_with($line, 'r')) {
+                $relationLine = $line;
+
+                break;
+            }
+        }
+
+        if ($relationLine === null) {
+            @unlink($relationPbf);
+
+            return null;
+        }
+
+        $membersPart = substr($relationLine, strrpos($relationLine, ' ') + 1);
+        $wayIds = [];
+
+        foreach (explode(',', $membersPart) as $member) {
+            if (str_starts_with($member, 'w') && str_ends_with($member, '@')) {
+                $wayIds[] = (int) substr($member, 1, -1);
+            }
+        }
+
+        if (empty($wayIds)) {
+            @unlink($relationPbf);
+
+            return null;
+        }
+
+        exec(sprintf(
+            'osmium export %s -o %s -f geojson -a id,type --overwrite 2>&1',
+            escapeshellarg($relationPbf),
+            escapeshellarg($relationGeoJson),
+        ), $exportOutput, $exportExitCode);
+
+        @unlink($relationPbf);
+
+        if ($exportExitCode !== 0 || ! file_exists($relationGeoJson)) {
+            @unlink($relationGeoJson);
+
+            return null;
+        }
+
+        $geoJson = json_decode(file_get_contents($relationGeoJson), true);
+        @unlink($relationGeoJson);
+
+        $waysById = [];
+
+        foreach ($geoJson['features'] ?? [] as $feature) {
+            if (($feature['geometry']['type'] ?? null) === 'LineString') {
+                $wayId = $feature['properties']['@id'] ?? null;
+
+                if ($wayId !== null) {
+                    $waysById[(int) $wayId] = array_map(
+                        fn ($coord) => ['lat' => $coord[1], 'lon' => $coord[0]],
+                        $feature['geometry']['coordinates'],
+                    );
+                }
+            }
+        }
+
+        return $this->stitchWays($wayIds, $waysById);
+    }
+
+    /**
+     * @param  list<int>  $orderedWayIds
+     * @param  array<int, list<array{lat: float, lon: float}>>  $waysById
+     * @return list<array{lat: float, lon: float}>|null
+     */
+    private function stitchWays(array $orderedWayIds, array $waysById): ?array
+    {
+        $chain = [];
+        $prevEnd = null;
+
+        foreach ($orderedWayIds as $wayId) {
+            $coords = $waysById[$wayId] ?? null;
+
+            if ($coords === null) {
+                return null;
+            }
+
+            if ($prevEnd === null) {
+                array_push($chain, ...$coords);
+                $prevEnd = $coords[count($coords) - 1];
+
+                continue;
+            }
+
+            $first = $coords[0];
+            $last = $coords[count($coords) - 1];
+            $distToStart = $this->haversineMeters($prevEnd['lat'], $prevEnd['lon'], $first['lat'], $first['lon']);
+            $distToEnd = $this->haversineMeters($prevEnd['lat'], $prevEnd['lon'], $last['lat'], $last['lon']);
+
+            if ($distToStart <= $distToEnd) {
+                if ($distToStart > self::RAIL_ENDPOINT_SNAP_TOLERANCE_METERS) {
+                    return null;
+                }
+
+                array_push($chain, ...array_slice($coords, 1));
+                $prevEnd = $last;
+            } else {
+                if ($distToEnd > self::RAIL_ENDPOINT_SNAP_TOLERANCE_METERS) {
+                    return null;
+                }
+
+                $reversed = array_reverse($coords);
+                array_push($chain, ...array_slice($reversed, 1));
+                $prevEnd = $reversed[count($reversed) - 1];
+            }
+        }
+
+        return $chain;
+    }
+
     private function cleanup(string $extractedDir): void
     {
         $files = new \RecursiveIteratorIterator(
