@@ -56,7 +56,13 @@ class MapMatchGtfsShapes extends Command
         [$matchedShapes, $stats] = $this->buildMatchedShapes($groupedShapes);
 
         $this->writeShapesCsv($extractedDir, $matchedShapes);
-        $this->rezip($extractedDir, $zipPath);
+
+        if (! $this->rezip($extractedDir, $zipPath)) {
+            $this->error('Failed to rezip the matched shapes — the original GTFS zip was left untouched. Temp files are at: '.$extractedDir);
+
+            return self::FAILURE;
+        }
+
         $this->cleanup($extractedDir);
 
         $this->printSummary($stats);
@@ -336,7 +342,7 @@ class MapMatchGtfsShapes extends Command
         fclose($handle);
     }
 
-    private function rezip(string $extractedDir, string $originalZipPath): void
+    private function rezip(string $extractedDir, string $originalZipPath): bool
     {
         $tempZipPath = $originalZipPath.'.tmp';
 
@@ -345,19 +351,36 @@ class MapMatchGtfsShapes extends Command
         }
 
         $zip = new \ZipArchive();
-        $zip->open($tempZipPath, \ZipArchive::CREATE);
 
-        foreach (scandir($extractedDir) as $file) {
+        if ($zip->open($tempZipPath, \ZipArchive::CREATE) !== true) {
+            return false;
+        }
+
+        $files = scandir($extractedDir);
+
+        if ($files === false) {
+            $zip->close();
+
+            return false;
+        }
+
+        foreach ($files as $file) {
             if ($file === '.' || $file === '..') {
                 continue;
             }
 
-            $zip->addFile($extractedDir.'/'.$file, $file);
+            if (! $zip->addFile($extractedDir.'/'.$file, $file)) {
+                $zip->close();
+
+                return false;
+            }
         }
 
-        $zip->close();
+        if (! $zip->close()) {
+            return false;
+        }
 
-        rename($tempZipPath, $originalZipPath);
+        return rename($tempZipPath, $originalZipPath);
     }
 
     /**
