@@ -289,7 +289,11 @@ async function findRoute() {
         }
 
         if (activeCommuteId) {
-            await cacheTripPlan(activeCommuteId, data);
+            try {
+                await cacheTripPlan(activeCommuteId, data);
+            } catch {
+                // caching is best-effort; don't let it block rendering a successful result
+            }
         }
 
         setStatus(null);
@@ -298,7 +302,7 @@ async function findRoute() {
         if (activeCommuteId) {
             const cached = await getCachedTripPlan(activeCommuteId);
 
-            if (cached) {
+            if (cached && Array.isArray(cached.options)) {
                 setStatus(null);
                 renderOptions(cached.options);
                 statusEl.textContent = '';
