@@ -389,3 +389,7 @@ if (urlParams.has('from_lat') && urlParams.has('from_lon') && urlParams.has('to_
 }
 
 findRoute();
+
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
