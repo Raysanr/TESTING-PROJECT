@@ -8,13 +8,15 @@ use Illuminate\Support\Facades\Http;
 
 class MapMatchGtfsShapes extends Command
 {
-    protected $signature = 'gtfs:map-match';
+    protected $signature = 'gtfs:map-match {--force : Skip the already-matched-input safety check}';
 
     protected $description = "Map-match GTFS shapes.txt against OTP's street router to produce road-following geometry";
 
     private const GTFS_ZIP_RELATIVE_PATH = 'otp-data/gtfs-jeepney-bus.zip';
 
     private const DETOUR_RATIO_THRESHOLD = 2.5;
+
+    private const ALREADY_MATCHED_SPACING_THRESHOLD_METERS = 100.0;
 
     private const CAR_MATCH_QUERY = <<<'GRAPHQL'
         query CarMatch($fromLat: Float!, $fromLon: Float!, $toLat: Float!, $toLon: Float!) {
@@ -49,13 +51,33 @@ class MapMatchGtfsShapes extends Command
         }
 
         $extractedDir = $this->extractGtfs($zipPath);
+
+        if ($extractedDir === null) {
+            $this->error("Failed to extract {$zipPath} — it may be corrupt or unreadable.");
+
+            return self::FAILURE;
+        }
+
         $groupedShapes = $this->parseShapes($extractedDir);
+
+        $meanSpacing = $this->meanPointSpacingMeters($groupedShapes);
+
+        if ($meanSpacing < self::ALREADY_MATCHED_SPACING_THRESHOLD_METERS && ! $this->option('force')) {
+            $this->error(sprintf(
+                "shapes.txt already looks map-matched (mean point spacing %.0fm). Re-running will over-subdivide it. Run otp-data/setup.sh for a pristine feed first, or pass --force.",
+                $meanSpacing,
+            ));
+
+            return self::FAILURE;
+        }
 
         $this->info('Matching '.count($groupedShapes).' shapes against OTP...');
 
         [$matchedShapes, $stats] = $this->buildMatchedShapes($groupedShapes);
 
         $this->writeShapesCsv($extractedDir, $matchedShapes);
+
+        $this->printSummary($stats);
 
         if (! $this->rezip($extractedDir, $zipPath)) {
             $this->error('Failed to rezip the matched shapes — the original GTFS zip was left untouched. Temp files are at: '.$extractedDir);
@@ -64,8 +86,6 @@ class MapMatchGtfsShapes extends Command
         }
 
         $this->cleanup($extractedDir);
-
-        $this->printSummary($stats);
 
         $this->info('otp-data/gtfs-jeepney-bus.zip updated. Restart OTP (docker compose up) to rebuild the graph with the new shapes.');
 
@@ -85,17 +105,21 @@ class MapMatchGtfsShapes extends Command
         return $response->successful();
     }
 
-    private function extractGtfs(string $zipPath): string
+    private function extractGtfs(string $zipPath): ?string
     {
         $tempDir = sys_get_temp_dir().'/gtfs-map-match-'.uniqid();
         mkdir($tempDir, recursive: true);
 
         $zip = new \ZipArchive();
-        $zip->open($zipPath);
-        $zip->extractTo($tempDir);
+
+        if ($zip->open($zipPath) !== true) {
+            return null;
+        }
+
+        $extracted = $zip->extractTo($tempDir);
         $zip->close();
 
-        return $tempDir;
+        return $extracted ? $tempDir : null;
     }
 
     /**
@@ -104,7 +128,7 @@ class MapMatchGtfsShapes extends Command
     private function parseShapes(string $extractedDir): array
     {
         $handle = fopen($extractedDir.'/shapes.txt', 'r');
-        $header = fgetcsv($handle);
+        $header = fgetcsv($handle, escape: '');
         $idIndex = array_search('shape_id', $header);
         $seqIndex = array_search('shape_pt_sequence', $header);
         $latIndex = array_search('shape_pt_lat', $header);
@@ -112,7 +136,7 @@ class MapMatchGtfsShapes extends Command
 
         $rows = [];
 
-        while (($row = fgetcsv($handle)) !== false) {
+        while (($row = fgetcsv($handle, escape: '')) !== false) {
             $rows[] = [
                 'shape_id' => $row[$idIndex],
                 'sequence' => (int) $row[$seqIndex],
@@ -167,9 +191,14 @@ class MapMatchGtfsShapes extends Command
 
         $matched = $otpResult['points'];
         $straightLine = $this->haversineMeters($pointA['lat'], $pointA['lon'], $pointB['lat'], $pointB['lon']);
+
+        if ($straightLine <= 0) {
+            return ['points' => [$pointA, $pointB], 'matched' => false, 'reason' => 'degenerate'];
+        }
+
         $roadLength = $this->pathLengthMeters($matched);
 
-        if ($straightLine > 0 && $roadLength / $straightLine > self::DETOUR_RATIO_THRESHOLD) {
+        if ($roadLength / $straightLine > self::DETOUR_RATIO_THRESHOLD) {
             return ['points' => [$pointA, $pointB], 'matched' => false, 'reason' => 'detour_ratio'];
         }
 
@@ -290,6 +319,22 @@ class MapMatchGtfsShapes extends Command
 
     /**
      * @param  array<string, list<array{lat: float, lon: float}>>  $groupedShapes
+     */
+    private function meanPointSpacingMeters(array $groupedShapes): float
+    {
+        $totalLength = 0.0;
+        $totalSegments = 0;
+
+        foreach ($groupedShapes as $points) {
+            $totalLength += $this->pathLengthMeters($points);
+            $totalSegments += max(count($points) - 1, 0);
+        }
+
+        return $totalSegments > 0 ? $totalLength / $totalSegments : 0.0;
+    }
+
+    /**
+     * @param  array<string, list<array{lat: float, lon: float}>>  $groupedShapes
      * @return array{0: array<string, list<array{lat: float, lon: float}>>, 1: array{shapes: int, segments_matched: int, segments_fallback: int, fallback_log: list<array{shape_id: string, segment_index: int, reason: string}>}}
      */
     private function buildMatchedShapes(array $groupedShapes): array
@@ -331,11 +376,11 @@ class MapMatchGtfsShapes extends Command
     private function writeShapesCsv(string $extractedDir, array $matchedShapes): void
     {
         $handle = fopen($extractedDir.'/shapes.txt', 'w');
-        fputcsv($handle, ['shape_id', 'shape_pt_sequence', 'shape_pt_lat', 'shape_pt_lon']);
+        fputcsv($handle, ['shape_id', 'shape_pt_sequence', 'shape_pt_lat', 'shape_pt_lon'], escape: '');
 
         foreach ($matchedShapes as $shapeId => $points) {
             foreach ($points as $sequence => $point) {
-                fputcsv($handle, [$shapeId, $sequence, $point['lat'], $point['lon']]);
+                fputcsv($handle, [$shapeId, $sequence, $point['lat'], $point['lon']], escape: '');
             }
         }
 
