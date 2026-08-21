@@ -215,11 +215,13 @@ function renderSavedCommutes() {
         li.className = 'flex items-center justify-between gap-2 rounded-lg border border-black/10 dark:border-white/10 px-3 py-2';
 
         li.innerHTML = `
-            <button type="button" data-load-commute class="flex-1 text-left truncate">${commute.label}</button>
+            <button type="button" data-load-commute class="flex-1 text-left truncate"></button>
             <button type="button" data-remove-commute aria-label="Remove"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
         `;
 
-        li.querySelector('[data-load-commute]').addEventListener('click', () => loadCommute(commute));
+        const loadBtn = li.querySelector('[data-load-commute]');
+        loadBtn.textContent = commute.label;
+        loadBtn.addEventListener('click', () => loadCommute(commute));
         li.querySelector('[data-remove-commute]').addEventListener('click', () => {
             removeCommute(commute.id);
             renderSavedCommutes();
