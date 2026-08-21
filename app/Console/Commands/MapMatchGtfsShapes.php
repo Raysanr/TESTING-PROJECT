@@ -18,6 +18,29 @@ class MapMatchGtfsShapes extends Command
 
     private const ALREADY_MATCHED_SPACING_THRESHOLD_METERS = 100.0;
 
+    private const OSM_PBF_RELATIVE_PATH = 'otp-data/metro-manila.osm.pbf';
+
+    private const RAIL_ENDPOINT_SNAP_TOLERANCE_METERS = 5.0;
+
+    /**
+     * Both directions of each line reuse the same relation — this GTFS feed
+     * models both trip directions with identical shape geometry already, so
+     * there's no separate "reverse" shape to source distinctly. Verified by
+     * direct extraction (docs/superpowers/specs/2026-08-22-osm-rail-shape-extraction-design.md):
+     * each relation's stitched point order already matches the existing GTFS
+     * shape's point order, with zero gaps. PNR (881953, 882086) is
+     * deliberately absent — no single clean OSM relation covers its extent,
+     * so it keeps falling through to the original-points fallback below.
+     */
+    private const RAIL_SHAPE_TO_OSM_RELATION = [
+        '880869' => 8000253, // MRT-3 (Taft Avenue -> North Avenue)
+        '882062' => 8000253, // MRT-3 (same physical line; GTFS models both directions identically)
+        '882144' => 8000260, // LRT-1 (Dr. Santos -> Fernando Poe Jr.)
+        '882188' => 8000260, // LRT-1
+        '880814' => 8000264, // LRT-2 (Recto -> Antipolo)
+        '882116' => 8000264, // LRT-2
+    ];
+
     private const CAR_MATCH_QUERY = <<<'GRAPHQL'
         query CarMatch($fromLat: Float!, $fromLon: Float!, $toLat: Float!, $toLon: Float!) {
             plan(
@@ -46,6 +69,20 @@ class MapMatchGtfsShapes extends Command
 
         if (! file_exists($zipPath)) {
             $this->error("GTFS zip not found at {$zipPath}");
+
+            return self::FAILURE;
+        }
+
+        if (! $this->osmiumIsAvailable()) {
+            $this->error('osmium-tool is required for rail shape extraction. Install it: brew install osmium-tool (macOS) or apt-get install osmium-tool (Linux).');
+
+            return self::FAILURE;
+        }
+
+        $osmPbfPath = base_path(self::OSM_PBF_RELATIVE_PATH);
+
+        if (! file_exists($osmPbfPath)) {
+            $this->error("OSM data not found at {$osmPbfPath}");
 
             return self::FAILURE;
         }
@@ -109,6 +146,13 @@ class MapMatchGtfsShapes extends Command
         }
 
         return $response->successful();
+    }
+
+    private function osmiumIsAvailable(): bool
+    {
+        exec('which osmium', $output, $exitCode);
+
+        return $exitCode === 0;
     }
 
     private function extractGtfs(string $zipPath): ?string
