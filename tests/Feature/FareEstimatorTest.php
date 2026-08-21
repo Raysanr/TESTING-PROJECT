@@ -41,4 +41,18 @@ class FareEstimatorTest extends TestCase
 
         $this->assertSame(15.0, $result['legs'][0]['fare']);
     }
+
+    public function test_includes_fare_mode_on_each_priced_leg(): void
+    {
+        Fare::create(['mode' => 'bus', 'base_fare' => 13.00]);
+        Fare::create(['mode' => 'default', 'base_fare' => 15.00]);
+
+        $result = (new FareEstimator())->estimate([
+            ['mode' => 'WALK', 'distance' => 100.0],
+            ['mode' => 'BUS', 'distance' => 3000.0],
+        ]);
+
+        $this->assertNull($result['legs'][0]['fareMode']);
+        $this->assertSame('bus', $result['legs'][1]['fareMode']);
+    }
 }

@@ -32,7 +32,7 @@ class FareEstimator
 
         foreach ($legs as $leg) {
             if (($leg['mode'] ?? null) === 'WALK') {
-                $priced[] = [...$leg, 'fare' => 0.0];
+                $priced[] = [...$leg, 'fare' => 0.0, 'fareMode' => null];
 
                 continue;
             }
@@ -41,7 +41,7 @@ class FareEstimator
             $fare = (float) (Fare::where('mode', $fareKey)->value('base_fare')
                 ?? Fare::where('mode', 'default')->value('base_fare'));
 
-            $priced[] = [...$leg, 'fare' => $fare];
+            $priced[] = [...$leg, 'fare' => $fare, 'fareMode' => $fareKey];
             $total += $fare;
         }
 
