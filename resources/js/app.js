@@ -140,14 +140,69 @@ function legLine(leg) {
     const label = leg.route?.shortName ?? leg.route?.longName ?? leg.mode;
     const fareLabel = leg.fare > 0 ? ` · ₱${Number(leg.fare).toFixed(2)}` : '';
     const kebabIcon = iconName.replace(/[A-Z]/g, (m, i) => (i ? '-' : '') + m.toLowerCase());
+    const reportHtml = leg.fare > 0 && leg.fareMode
+        ? `<button type="button" data-report-fare-btn data-fare-mode="${leg.fareMode}" data-current-fare="${leg.fare}" class="text-xs text-foreground-secondary underline underline-offset-2">Report fare</button>`
+        : '';
 
     return `
         <i data-lucide="${kebabIcon}" class="w-4 h-4 mt-0.5 shrink-0"></i>
-        <div>
+        <div class="flex-1">
             <p class="font-medium">${label}</p>
             <p class="text-foreground-secondary">${leg.from?.name ?? ''} → ${leg.to?.name ?? ''}${fareLabel}</p>
+            <div data-report-fare-container>${reportHtml}</div>
         </div>
     `;
+}
+
+function attachReportFareHandlers(container) {
+    for (const btn of container.querySelectorAll('[data-report-fare-btn]')) {
+        btn.addEventListener('click', () => showReportFareForm(btn));
+    }
+}
+
+function showReportFareForm(btn) {
+    const mode = btn.dataset.fareMode;
+    const currentFare = btn.dataset.currentFare;
+    const container = btn.closest('[data-report-fare-container]');
+
+    container.innerHTML = `
+        <div class="flex items-center gap-2 mt-1">
+            <input type="number" step="0.01" min="1" max="200" value="${currentFare}"
+                data-report-fare-input
+                class="w-20 rounded border border-black/10 dark:border-white/10 bg-transparent px-2 py-1 text-xs outline-none focus:border-foreground/40">
+            <button type="button" data-report-fare-submit class="text-xs underline underline-offset-2">Submit</button>
+        </div>
+    `;
+
+    container.querySelector('[data-report-fare-submit]').addEventListener('click', () => submitFareReport(mode, container));
+}
+
+async function submitFareReport(mode, container) {
+    const input = container.querySelector('[data-report-fare-input]');
+    const reportedFare = Number(input.value);
+
+    try {
+        const response = await fetch('/api/fare-reports', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode, reported_fare: reportedFare }),
+        });
+
+        if (!response.ok) {
+            container.innerHTML = '<p class="text-xs text-foreground-secondary mt-1">Couldn\'t submit that report.</p>';
+
+            return;
+        }
+
+        const data = await response.json();
+        const message = data.status === 'updated'
+            ? `Thanks — fares just updated to ₱${Number(data.currentFare).toFixed(2)}.`
+            : 'Thanks — reported.';
+
+        container.innerHTML = `<p class="text-xs text-foreground-secondary mt-1">${message}</p>`;
+    } catch {
+        container.innerHTML = '<p class="text-xs text-foreground-secondary mt-1">Couldn\'t submit that report.</p>';
+    }
 }
 
 function selectOption(option, cardEl) {
@@ -204,6 +259,7 @@ function renderOptions(options) {
 
         li.addEventListener('click', () => selectOption(option, li));
         optionsListEl.appendChild(li);
+        attachReportFareHandlers(li);
 
         if (index === 0) {
             selectOption(option, li);
