@@ -2,6 +2,7 @@ import './bootstrap';
 import L from 'leaflet';
 import { createIcons, Bus, TrainFront, Footprints, Search, MapPin, Bookmark, X } from 'lucide';
 import { listCommutes, saveCommute, removeCommute } from './savedCommutes';
+import { cacheTripPlan, getCachedTripPlan } from './offlineCache';
 
 const ICONS = { Bus, TrainFront, Footprints, Search, MapPin, Bookmark, X };
 createIcons({ icons: ICONS });
@@ -260,12 +261,15 @@ renderSavedCommutes();
 async function findRoute() {
     setStatus('Searching…');
 
+    const [fromLat, fromLon] = ORIGIN;
+    const [toLat, toLon] = DESTINATION;
+
     try {
         const params = new URLSearchParams({
-            from_lat: ORIGIN[0],
-            from_lon: ORIGIN[1],
-            to_lat: DESTINATION[0],
-            to_lon: DESTINATION[1],
+            from_lat: fromLat,
+            from_lon: fromLon,
+            to_lat: toLat,
+            to_lon: toLon,
         });
 
         const response = await fetch(`/api/trip-plan?${params}`);
@@ -284,9 +288,30 @@ async function findRoute() {
             return;
         }
 
+        if (activeCommuteId) {
+            await cacheTripPlan(activeCommuteId, data);
+        }
+
         setStatus(null);
         renderOptions(data.options);
     } catch {
+        if (activeCommuteId) {
+            const cached = await getCachedTripPlan(activeCommuteId);
+
+            if (cached) {
+                setStatus(null);
+                renderOptions(cached.options);
+                statusEl.textContent = '';
+                resultsEl.insertAdjacentHTML('afterbegin', '<p class="text-xs text-foreground-secondary mb-2">Showing offline result — last saved when you were connected.</p>');
+
+                return;
+            }
+
+            setStatus('No offline copy of this route yet — connect and search once to save it.');
+
+            return;
+        }
+
         setStatus('Could not reach the server.');
     }
 }
