@@ -32,6 +32,18 @@
                 </button>
             </form>
 
+            <div class="flex flex-col gap-2">
+                <div class="flex gap-2">
+                    <input id="commute-label-input" type="text" placeholder="Label (e.g. Home → Work)" autocomplete="off"
+                        class="flex-1 rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-3 py-2 text-sm outline-none focus:border-foreground/40">
+                    <button id="save-commute-btn" type="button"
+                        class="inline-flex items-center justify-center gap-2 rounded-lg border border-black/10 dark:border-white/10 px-3 py-2 text-sm">
+                        <i data-lucide="bookmark" class="w-4 h-4"></i>
+                    </button>
+                </div>
+                <ul id="saved-commutes-list" class="flex flex-col gap-2 text-sm"></ul>
+            </div>
+
             <p id="status-message" class="hidden text-sm rounded-lg border border-black/10 dark:border-white/10 px-3 py-2"></p>
 
             <div id="results" class="flex flex-col gap-4">

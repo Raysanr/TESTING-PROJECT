@@ -1,12 +1,13 @@
 import './bootstrap';
 import L from 'leaflet';
-import { createIcons, Bus, TrainFront, Footprints, Search, MapPin } from 'lucide';
+import { createIcons, Bus, TrainFront, Footprints, Search, MapPin, Bookmark, X } from 'lucide';
+import { listCommutes, saveCommute, removeCommute } from './savedCommutes';
 
-const ICONS = { Bus, TrainFront, Footprints, Search, MapPin };
+const ICONS = { Bus, TrainFront, Footprints, Search, MapPin, Bookmark, X };
 createIcons({ icons: ICONS });
 
-const ORIGIN = [14.6570, 121.0327]; // SM North EDSA
-const DESTINATION = [14.5578, 121.0244]; // Ayala Avenue, Makati
+let ORIGIN = [14.6570, 121.0327]; // SM North EDSA
+let DESTINATION = [14.5578, 121.0244]; // Ayala Avenue, Makati
 
 // Google encoded polyline algorithm (precision 5), as returned by OTP's legGeometry.points.
 function decodePolyline(encoded) {
@@ -45,6 +46,7 @@ function decodePolyline(encoded) {
 
 const mapEl = document.getElementById('map');
 let map, routeLayer;
+let activeCommuteId = null;
 
 if (mapEl) {
     map = L.map(mapEl, { zoomControl: true }).setView(ORIGIN, 13);
@@ -199,6 +201,59 @@ function renderOptions(options) {
 
     createIcons({ icons: ICONS });
 }
+
+const savedCommutesListEl = document.getElementById('saved-commutes-list');
+const commuteLabelInputEl = document.getElementById('commute-label-input');
+const saveCommuteBtnEl = document.getElementById('save-commute-btn');
+
+function renderSavedCommutes() {
+    const commutes = listCommutes();
+    savedCommutesListEl.innerHTML = '';
+
+    for (const commute of commutes) {
+        const li = document.createElement('li');
+        li.className = 'flex items-center justify-between gap-2 rounded-lg border border-black/10 dark:border-white/10 px-3 py-2';
+
+        li.innerHTML = `
+            <button type="button" data-load-commute class="flex-1 text-left truncate">${commute.label}</button>
+            <button type="button" data-remove-commute aria-label="Remove"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+        `;
+
+        li.querySelector('[data-load-commute]').addEventListener('click', () => loadCommute(commute));
+        li.querySelector('[data-remove-commute]').addEventListener('click', () => {
+            removeCommute(commute.id);
+            renderSavedCommutes();
+        });
+
+        savedCommutesListEl.appendChild(li);
+    }
+
+    createIcons({ icons: ICONS });
+}
+
+function loadCommute(commute) {
+    ORIGIN = [commute.fromLat, commute.fromLon];
+    DESTINATION = [commute.toLat, commute.toLon];
+    activeCommuteId = commute.id;
+    findRoute();
+}
+
+if (saveCommuteBtnEl) {
+    saveCommuteBtnEl.addEventListener('click', () => {
+        const commute = saveCommute({
+            label: commuteLabelInputEl.value,
+            fromLat: ORIGIN[0],
+            fromLon: ORIGIN[1],
+            toLat: DESTINATION[0],
+            toLon: DESTINATION[1],
+        });
+        activeCommuteId = commute.id;
+        commuteLabelInputEl.value = '';
+        renderSavedCommutes();
+    });
+}
+
+renderSavedCommutes();
 
 async function findRoute() {
     setStatus('Searching…');
