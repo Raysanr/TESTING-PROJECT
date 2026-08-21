@@ -56,10 +56,12 @@ class MapMatchGtfsShapes extends Command
         [$matchedShapes, $stats] = $this->buildMatchedShapes($groupedShapes);
 
         $this->writeShapesCsv($extractedDir, $matchedShapes);
+        $this->rezip($extractedDir, $zipPath);
+        $this->cleanup($extractedDir);
 
         $this->printSummary($stats);
 
-        $this->info("Matched shapes.txt written to: {$extractedDir}/shapes.txt (not yet applied — original zip untouched)");
+        $this->info('otp-data/gtfs-jeepney-bus.zip updated. Restart OTP (docker compose up) to rebuild the graph with the new shapes.');
 
         return self::SUCCESS;
     }
@@ -332,6 +334,30 @@ class MapMatchGtfsShapes extends Command
         }
 
         fclose($handle);
+    }
+
+    private function rezip(string $extractedDir, string $originalZipPath): void
+    {
+        $tempZipPath = $originalZipPath.'.tmp';
+
+        if (file_exists($tempZipPath)) {
+            unlink($tempZipPath);
+        }
+
+        $zip = new \ZipArchive();
+        $zip->open($tempZipPath, \ZipArchive::CREATE);
+
+        foreach (scandir($extractedDir) as $file) {
+            if ($file === '.' || $file === '..') {
+                continue;
+            }
+
+            $zip->addFile($extractedDir.'/'.$file, $file);
+        }
+
+        $zip->close();
+
+        rename($tempZipPath, $originalZipPath);
     }
 
     /**
