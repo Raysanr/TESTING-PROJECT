@@ -51,12 +51,15 @@ class MapMatchGtfsShapes extends Command
         $extractedDir = $this->extractGtfs($zipPath);
         $groupedShapes = $this->parseShapes($extractedDir);
 
-        $totalPoints = array_sum(array_map('count', $groupedShapes));
+        $this->info('Matching '.count($groupedShapes).' shapes against OTP...');
 
-        $this->info('Shapes found: '.count($groupedShapes));
-        $this->info("Total points across all shapes: {$totalPoints}");
+        [$matchedShapes, $stats] = $this->buildMatchedShapes($groupedShapes);
 
-        $this->cleanup($extractedDir);
+        $this->writeShapesCsv($extractedDir, $matchedShapes);
+
+        $this->printSummary($stats);
+
+        $this->info("Matched shapes.txt written to: {$extractedDir}/shapes.txt (not yet applied — original zip untouched)");
 
         return self::SUCCESS;
     }
@@ -275,5 +278,82 @@ class MapMatchGtfsShapes extends Command
         }
 
         return $total;
+    }
+
+    /**
+     * @param  array<string, list<array{lat: float, lon: float}>>  $groupedShapes
+     * @return array{0: array<string, list<array{lat: float, lon: float}>>, 1: array{shapes: int, segments_matched: int, segments_fallback: int, fallback_log: list<array{shape_id: string, segment_index: int, reason: string}>}}
+     */
+    private function buildMatchedShapes(array $groupedShapes): array
+    {
+        $matchedShapes = [];
+        $stats = ['shapes' => 0, 'segments_matched' => 0, 'segments_fallback' => 0, 'fallback_log' => []];
+
+        foreach ($groupedShapes as $shapeId => $points) {
+            $stats['shapes']++;
+            $newPoints = [$points[0]];
+
+            for ($i = 0; $i < count($points) - 1; $i++) {
+                $result = $this->matchPair($points[$i], $points[$i + 1]);
+
+                $segmentPoints = array_slice($result['points'], 1);
+                array_push($newPoints, ...$segmentPoints);
+
+                if ($result['matched']) {
+                    $stats['segments_matched']++;
+                } else {
+                    $stats['segments_fallback']++;
+                    $stats['fallback_log'][] = [
+                        'shape_id' => $shapeId,
+                        'segment_index' => $i,
+                        'reason' => $result['reason'],
+                    ];
+                }
+            }
+
+            $matchedShapes[$shapeId] = $newPoints;
+        }
+
+        return [$matchedShapes, $stats];
+    }
+
+    /**
+     * @param  array<string, list<array{lat: float, lon: float}>>  $matchedShapes
+     */
+    private function writeShapesCsv(string $extractedDir, array $matchedShapes): void
+    {
+        $handle = fopen($extractedDir.'/shapes.txt', 'w');
+        fputcsv($handle, ['shape_id', 'shape_pt_sequence', 'shape_pt_lat', 'shape_pt_lon']);
+
+        foreach ($matchedShapes as $shapeId => $points) {
+            foreach ($points as $sequence => $point) {
+                fputcsv($handle, [$shapeId, $sequence, $point['lat'], $point['lon']]);
+            }
+        }
+
+        fclose($handle);
+    }
+
+    /**
+     * @param  array{shapes: int, segments_matched: int, segments_fallback: int, fallback_log: list<array{shape_id: string, segment_index: int, reason: string}>}  $stats
+     */
+    private function printSummary(array $stats): void
+    {
+        $totalSegments = $stats['segments_matched'] + $stats['segments_fallback'];
+        $fallbackPercent = $totalSegments > 0
+            ? round($stats['segments_fallback'] / $totalSegments * 100, 1)
+            : 0.0;
+
+        $this->info("Shapes processed: {$stats['shapes']}");
+        $this->info("Segments matched: {$stats['segments_matched']}");
+        $this->info("Segments fell back: {$stats['segments_fallback']} ({$fallbackPercent}%)");
+
+        if (! empty($stats['fallback_log'])) {
+            $this->warn('Fallback details:');
+
+            foreach ($stats['fallback_log'] as $entry) {
+                $this->line("  shape {$entry['shape_id']} segment {$entry['segment_index']}: {$entry['reason']}");
+            }
+        }
     }
 }
