@@ -25,3 +25,4 @@ Thumbs.db
 /otp-data/*
 !/otp-data/setup.sh
 !/otp-data/README.md
+/.worktrees
