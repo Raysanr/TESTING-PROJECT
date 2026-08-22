@@ -8,14 +8,20 @@ Run `./setup.sh` from this folder to fetch and prepare everything below automati
 
 ## Map-matching (optional, fixes zigzag transit-leg rendering)
 
-`gtfs-jeepney-bus.zip`'s `shapes.txt` is sparse (521 points across the whole feed), so OTP draws straight lines between waypoints instead of following roads. `php artisan gtfs:map-match` fixes this by snapping the shapes against OTP's own street router and rewriting `gtfs-jeepney-bus.zip` in place — run it once, after `setup.sh` and before `docker compose up`. **Only bus/jeepney shapes (`route_type` 3) are matched** — rail (LRT-1/2, MRT-3, PNR) runs on dedicated track, not roads, so CAR-mode street routing would corrupt it; rail shapes are left exactly as the source feed provides them:
+`gtfs-jeepney-bus.zip`'s `shapes.txt` is sparse (521 points across the whole feed), so OTP draws straight lines between waypoints instead of following roads. `php artisan gtfs:map-match` fixes this two ways and rewrites `gtfs-jeepney-bus.zip` in place — run it once, after `setup.sh` and before `docker compose up`:
+
+- **Bus/jeepney shapes** (`route_type` 3) are snapped against OTP's own street router (CAR-mode routing) — needs `docker compose up` running first.
+- **MRT-3, LRT-1, and LRT-2** are replaced with real surveyed track geometry extracted from `metro-manila.osm.pbf` (via `osmium`, which `setup.sh` already requires) — CAR-mode street routing would be wrong for a train, since it doesn't run on roads. Both directions of each line are corrected to the right orientation automatically (derived from each shape's own trip in `stop_times.txt`, not hardcoded).
+- **PNR** has no single clean OSM route relation covering its extent, so its shapes are left as the source feed provides them — beyond the automatic direction-orientation correction above, which applies to every rail shape uniformly.
 
 ```
 ./setup.sh
-docker compose up   # OTP needs to be running for the command to call it
+docker compose up   # OTP needs to be running for the bus/jeepney matching step
 php artisan gtfs:map-match
 docker compose restart   # rebuild the graph from the matched shapes
 ```
+
+Requires `osmium-tool` (`brew install osmium-tool` on macOS, already a `setup.sh` prerequisite) and `otp-data/metro-manila.osm.pbf` to be present — the command checks both and fails with an actionable message if either is missing.
 
 **Do not run it twice in a row** — it isn't idempotent against its own output (feeding already-matched shapes back through it over-subdivides them). It detects this and refuses to run (unless `--force`); if you need a pristine feed again, re-run `./setup.sh` first, which repacks `shapes.txt` from the original source.
 
