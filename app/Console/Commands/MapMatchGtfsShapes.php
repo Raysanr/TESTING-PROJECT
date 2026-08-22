@@ -25,20 +25,29 @@ class MapMatchGtfsShapes extends Command
     /**
      * Both directions of each line reuse the same relation — this GTFS feed
      * models both trip directions with identical shape geometry already, so
-     * there's no separate "reverse" shape to source distinctly. Verified by
+     * there's no separate OSM relation to source distinctly. Verified by
      * direct extraction (docs/superpowers/specs/2026-08-22-osm-rail-shape-extraction-design.md):
      * each relation's stitched point order already matches the existing GTFS
-     * shape's point order, with zero gaps. PNR (881953, 882086) is
-     * deliberately absent — no single clean OSM relation covers its extent,
-     * so it keeps falling through to the original-points fallback below.
+     * shape's point order, with zero gaps — but only for ONE of the two
+     * shape_ids in a pair. Each line's two shape_ids represent opposite real
+     * trip directions, while a relation's stitched way order is a single
+     * fixed direction. Only one shape_id per pair naturally matches that
+     * order (`reverse: false`); the other needs its extracted points run
+     * through `array_reverse()` before use (`reverse: true`), or OTP's
+     * stop-to-shape hop-geometry projection walks the shape backwards
+     * relative to the trip's stop sequence and silently falls back to
+     * straight-line-between-stops geometry for that direction. PNR (881953,
+     * 882086) is deliberately absent — no single clean OSM relation covers
+     * its extent, so it keeps falling through to the original-points
+     * fallback below.
      */
     private const RAIL_SHAPE_TO_OSM_RELATION = [
-        '880869' => 8000253, // MRT-3 (Taft Avenue -> North Avenue)
-        '882062' => 8000253, // MRT-3 (same physical line; GTFS models both directions identically)
-        '882144' => 8000260, // LRT-1 (Dr. Santos -> Fernando Poe Jr.)
-        '882188' => 8000260, // LRT-1
-        '880814' => 8000264, // LRT-2 (Recto -> Antipolo)
-        '882116' => 8000264, // LRT-2
+        '880869' => ['relation' => 8000253, 'reverse' => false], // MRT-3 (Taft Avenue -> North Avenue, matches relation order)
+        '882062' => ['relation' => 8000253, 'reverse' => true],  // MRT-3 (North Avenue -> Taft Avenue, opposite of relation order)
+        '882144' => ['relation' => 8000260, 'reverse' => false], // LRT-1 (Baclaran -> Roosevelt, matches relation order)
+        '882188' => ['relation' => 8000260, 'reverse' => true],  // LRT-1 (Roosevelt -> Baclaran, opposite of relation order)
+        '880814' => ['relation' => 8000264, 'reverse' => false], // LRT-2 (Recto -> Santolan, matches relation order)
+        '882116' => ['relation' => 8000264, 'reverse' => true],  // LRT-2 (Santolan -> Recto, opposite of relation order)
     ];
 
     private const CAR_MATCH_QUERY = <<<'GRAPHQL'
@@ -417,21 +426,25 @@ class MapMatchGtfsShapes extends Command
         $stats = ['rail_extracted' => 0, 'rail_fallback' => 0];
 
         foreach ($nonRoadShapes as $shapeId => $originalPoints) {
-            $relationId = self::RAIL_SHAPE_TO_OSM_RELATION[$shapeId] ?? null;
+            $mapping = self::RAIL_SHAPE_TO_OSM_RELATION[$shapeId] ?? null;
 
-            if ($relationId === null) {
+            if ($mapping === null) {
                 $processed[$shapeId] = $originalPoints;
 
                 continue;
             }
 
-            $extracted = $this->extractRailShape($osmPbfPath, $relationId);
+            $extracted = $this->extractRailShape($osmPbfPath, $mapping['relation']);
 
             if ($extracted === null) {
-                $this->warn("Rail extraction failed for shape {$shapeId} (relation {$relationId}) — keeping original GTFS points.");
+                $this->warn("Rail extraction failed for shape {$shapeId} (relation {$mapping['relation']}) — keeping original GTFS points.");
                 $processed[$shapeId] = $originalPoints;
                 $stats['rail_fallback']++;
             } else {
+                if ($mapping['reverse']) {
+                    $extracted = array_reverse($extracted);
+                }
+
                 $processed[$shapeId] = $extracted;
                 $stats['rail_extracted']++;
             }
