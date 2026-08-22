@@ -65,7 +65,7 @@ class RouteScorer
             $isWalk = ($leg['mode'] ?? null) === 'WALK';
 
             if ($isWalk) {
-                $lines[] = $this->withLandmark("Walk to {$to}", $leg);
+                $lines[] = $this->withLandmark("Walk to {$to}", $leg['to'] ?? []);
 
                 continue;
             }
@@ -76,7 +76,7 @@ class RouteScorer
                 ? "Transfer to {$route} at {$to}"
                 : "Ride {$route} to {$to}";
 
-            $lines[] = $index === 0 ? $this->withLandmark($line, $leg) : $line;
+            $lines[] = $index === 0 ? $this->withLandmark($line, $leg['from'] ?? []) : $line;
 
             $boardedTransit = true;
         }
@@ -85,12 +85,12 @@ class RouteScorer
     }
 
     /**
-     * @param  array<string, mixed>  $leg
+     * @param  array<string, mixed>  $endpoint
      */
-    private function withLandmark(string $line, array $leg): string
+    private function withLandmark(string $line, array $endpoint): string
     {
-        $lat = $leg['to']['lat'] ?? null;
-        $lon = $leg['to']['lon'] ?? null;
+        $lat = $endpoint['lat'] ?? null;
+        $lon = $endpoint['lon'] ?? null;
 
         if ($lat === null || $lon === null) {
             return $line;

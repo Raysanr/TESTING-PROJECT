@@ -45,6 +45,16 @@ function decodePolyline(encoded) {
     return points;
 }
 
+function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+    })[char]);
+}
+
 const mapEl = document.getElementById('map');
 let map, routeLayer;
 let activeCommuteId = null;
@@ -148,8 +158,8 @@ function legLine(leg) {
     return `
         <i data-lucide="${kebabIcon}" class="w-4 h-4 mt-0.5 shrink-0"></i>
         <div class="flex-1">
-            <p class="font-medium">${label}</p>
-            <p class="text-foreground-secondary">${leg.from?.name ?? ''} → ${leg.to?.name ?? ''}${fareLabel}</p>
+            <p class="font-medium">${escapeHtml(label)}</p>
+            <p class="text-foreground-secondary">${escapeHtml(leg.from?.name ?? '')} → ${escapeHtml(leg.to?.name ?? '')}${fareLabel}</p>
             <div data-report-fare-container>${reportHtml}</div>
         </div>
     `;
@@ -243,7 +253,7 @@ function renderOptions(options) {
             .map((leg) => `<li class="flex gap-3 text-sm">${legLine(leg)}</li>`)
             .join('');
 
-        const instructionsHtml = option.instructions.map((line) => `<li>${line}</li>`).join('');
+        const instructionsHtml = option.instructions.map((line) => `<li>${escapeHtml(line)}</li>`).join('');
         const transferLabel = `${option.transferCount} transfer${option.transferCount === 1 ? '' : 's'}`;
 
         li.innerHTML = `

@@ -135,6 +135,30 @@ class RouteScorerTest extends TestCase
         $this->assertSame('Walk to Somewhere Remote', $ranked[0]['instructions'][0]);
     }
 
+    public function test_appends_a_nearby_landmark_to_the_first_leg_when_it_is_transit(): void
+    {
+        Landmark::create(['name' => 'Trinoma Mall', 'lat' => 14.6570, 'lon' => 121.0327, 'poi_type' => 'mall']);
+
+        $scorer = new RouteScorer(new LandmarkLookupService());
+
+        $itinerary = $this->itinerary(walkDistance: 0.0, legs: [
+            [
+                'mode' => 'BUS',
+                'route' => ['shortName' => 'Jeepney 32'],
+                'from' => ['name' => 'SM North EDSA Terminal', 'lat' => 14.6571, 'lon' => 121.0328],
+                'to' => ['name' => 'Quezon Ave', 'lat' => 14.5000, 'lon' => 121.5000],
+            ],
+            ['mode' => 'RAIL', 'route' => ['shortName' => 'LRT-1'], 'to' => ['name' => 'Roosevelt']],
+        ]);
+
+        $ranked = $scorer->rank([$itinerary]);
+
+        $this->assertSame(
+            'Ride Jeepney 32 to Quezon Ave (near Trinoma Mall)',
+            $ranked[0]['instructions'][0],
+        );
+    }
+
     /**
      * @param  array<int, array<string, mixed>>  $legs
      * @return array<string, mixed>
