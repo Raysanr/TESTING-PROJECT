@@ -4,6 +4,10 @@ namespace App\Services;
 
 class RouteScorer
 {
+    public function __construct(
+        private readonly LandmarkLookupService $landmarks,
+    ) {}
+
     /**
      * @param  array<int, array<string, mixed>>  $itineraries
      * @return array<int, array<string, mixed>> the same itineraries, sorted best-first and
@@ -56,24 +60,44 @@ class RouteScorer
         $lines = [];
         $boardedTransit = false;
 
-        foreach ($legs as $leg) {
+        foreach ($legs as $index => $leg) {
             $to = $leg['to']['name'] ?? 'destination';
+            $isWalk = ($leg['mode'] ?? null) === 'WALK';
 
-            if (($leg['mode'] ?? null) === 'WALK') {
-                $lines[] = "Walk to {$to}";
+            if ($isWalk) {
+                $lines[] = $this->withLandmark("Walk to {$to}", $leg);
 
                 continue;
             }
 
             $route = $leg['route']['shortName'] ?? $leg['route']['longName'] ?? ucfirst(strtolower($leg['mode']));
 
-            $lines[] = $boardedTransit
+            $line = $boardedTransit
                 ? "Transfer to {$route} at {$to}"
                 : "Ride {$route} to {$to}";
+
+            $lines[] = $index === 0 ? $this->withLandmark($line, $leg) : $line;
 
             $boardedTransit = true;
         }
 
         return $lines;
+    }
+
+    /**
+     * @param  array<string, mixed>  $leg
+     */
+    private function withLandmark(string $line, array $leg): string
+    {
+        $lat = $leg['to']['lat'] ?? null;
+        $lon = $leg['to']['lon'] ?? null;
+
+        if ($lat === null || $lon === null) {
+            return $line;
+        }
+
+        $landmark = $this->landmarks->nearest((float) $lat, (float) $lon);
+
+        return $landmark === null ? $line : "{$line} (near {$landmark['name']})";
     }
 }
