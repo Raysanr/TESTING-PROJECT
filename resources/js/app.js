@@ -53,9 +53,10 @@ let lastTripPlan = null;
 if (mapEl) {
     map = L.map(mapEl, { zoomControl: true }).setView(ORIGIN, 13);
 
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors',
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
         maxZoom: 19,
+        subdomains: 'abcd',
     }).addTo(map);
 
     routeLayer = L.layerGroup().addTo(map);
