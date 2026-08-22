@@ -116,7 +116,12 @@ class MapMatchGtfsShapes extends Command
 
         [$matchedRoadShapes, $stats] = $this->buildMatchedShapes($roadShapes);
 
-        $matchedShapes = $matchedRoadShapes + $nonRoadShapes;
+        [$processedNonRoadShapes, $railStats] = $this->processRailShapes($osmPbfPath, $nonRoadShapes);
+
+        $stats['rail_extracted'] = $railStats['rail_extracted'];
+        $stats['rail_fallback'] = $railStats['rail_fallback'];
+
+        $matchedShapes = $matchedRoadShapes + $processedNonRoadShapes;
 
         $this->writeShapesCsv($extractedDir, $matchedShapes);
 
@@ -402,6 +407,39 @@ class MapMatchGtfsShapes extends Command
         return $chain;
     }
 
+    /**
+     * @param  array<string, list<array{lat: float, lon: float}>>  $nonRoadShapes
+     * @return array{0: array<string, list<array{lat: float, lon: float}>>, 1: array{rail_extracted: int, rail_fallback: int}}
+     */
+    private function processRailShapes(string $osmPbfPath, array $nonRoadShapes): array
+    {
+        $processed = [];
+        $stats = ['rail_extracted' => 0, 'rail_fallback' => 0];
+
+        foreach ($nonRoadShapes as $shapeId => $originalPoints) {
+            $relationId = self::RAIL_SHAPE_TO_OSM_RELATION[$shapeId] ?? null;
+
+            if ($relationId === null) {
+                $processed[$shapeId] = $originalPoints;
+
+                continue;
+            }
+
+            $extracted = $this->extractRailShape($osmPbfPath, $relationId);
+
+            if ($extracted === null) {
+                $this->warn("Rail extraction failed for shape {$shapeId} (relation {$relationId}) — keeping original GTFS points.");
+                $processed[$shapeId] = $originalPoints;
+                $stats['rail_fallback']++;
+            } else {
+                $processed[$shapeId] = $extracted;
+                $stats['rail_extracted']++;
+            }
+        }
+
+        return [$processed, $stats];
+    }
+
     private function cleanup(string $extractedDir): void
     {
         $files = new \RecursiveIteratorIterator(
@@ -667,7 +705,7 @@ class MapMatchGtfsShapes extends Command
     }
 
     /**
-     * @param  array{shapes: int, segments_matched: int, segments_fallback: int, fallback_log: list<array{shape_id: string, segment_index: int, reason: string}>}  $stats
+     * @param  array{shapes: int, segments_matched: int, segments_fallback: int, fallback_log: list<array{shape_id: string, segment_index: int, reason: string}>, rail_extracted: int, rail_fallback: int}  $stats
      */
     private function printSummary(array $stats): void
     {
@@ -679,6 +717,8 @@ class MapMatchGtfsShapes extends Command
         $this->info("Shapes processed: {$stats['shapes']}");
         $this->info("Segments matched: {$stats['segments_matched']}");
         $this->info("Segments fell back: {$stats['segments_fallback']} ({$fallbackPercent}%)");
+        $this->info("Rail shapes extracted from OSM: {$stats['rail_extracted']}");
+        $this->info("Rail shapes kept as original GTFS points: {$stats['rail_fallback']}");
 
         if (! empty($stats['fallback_log'])) {
             $this->warn('Fallback details:');
