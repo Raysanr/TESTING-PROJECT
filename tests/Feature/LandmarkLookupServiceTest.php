@@ -54,4 +54,15 @@ class LandmarkLookupServiceTest extends TestCase
 
         $this->assertSame('Closer', $result['name']);
     }
+
+    public function test_excludes_landmarks_within_bounding_box_but_beyond_100m_radius(): void
+    {
+        // ~130m away — within the bounding box (±167m) but beyond MAX_DISTANCE_METERS (100m)
+        Landmark::create(['name' => 'Just Beyond Range', 'lat' => 14.6583, 'lon' => 121.0327, 'poi_type' => 'restaurant']);
+
+        $result = (new LandmarkLookupService())->nearest(14.657, 121.0327);
+
+        // Should exclude it despite being inside the bounding box
+        $this->assertNull($result);
+    }
 }
