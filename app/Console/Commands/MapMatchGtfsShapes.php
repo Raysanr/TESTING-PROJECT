@@ -23,19 +23,20 @@ class MapMatchGtfsShapes extends Command
     private const RAIL_ENDPOINT_SNAP_TOLERANCE_METERS = 5.0;
 
     /**
-     * Both directions of each line reuse the same relation — this GTFS feed
-     * models both trip directions with identical shape geometry already, so
-     * there's no separate OSM relation to source distinctly. Verified by
-     * direct extraction (docs/superpowers/specs/2026-08-22-osm-rail-shape-extraction-design.md):
-     * each relation's stitched point order already matches the existing GTFS
-     * shape's point order, with zero gaps — but only for ONE of the two
-     * shape_ids in a pair. Each line's two shape_ids represent opposite real
-     * trip directions, while a relation's stitched way order is a single
-     * fixed direction. Only one shape_id per pair naturally matches that
-     * order (`reverse: false`); the other needs its extracted points run
-     * through `array_reverse()` before use (`reverse: true`), or OTP's
-     * stop-to-shape hop-geometry projection walks the shape backwards
-     * relative to the trip's stop sequence and silently falls back to
+     * Both directions of each line reuse the same OSM relation — the
+     * *original, pristine* GTFS shapes for a line's two shape_ids happen to
+     * be byte-identical already, so there's only one relation to source from,
+     * not two. But the two shape_ids still represent opposite REAL trip
+     * directions, while a relation's stitched way order is a single fixed
+     * direction. Verified by direct extraction
+     * (docs/superpowers/specs/2026-08-22-osm-rail-shape-extraction-design.md):
+     * each relation's stitched point order matches the existing GTFS shape's
+     * point order with zero gaps, but only for ONE of the two shape_ids in a
+     * pair. Only one shape_id per pair naturally matches that order
+     * (`reverse: false`); the other needs its extracted points run through
+     * `array_reverse()` before use (`reverse: true`), or OTP's stop-to-shape
+     * hop-geometry projection walks the shape backwards relative to the
+     * trip's stop sequence and silently falls back to
      * straight-line-between-stops geometry for that direction. PNR (881953,
      * 882086) is deliberately absent — no single clean OSM relation covers
      * its extent, so it keeps falling through to the original-points
