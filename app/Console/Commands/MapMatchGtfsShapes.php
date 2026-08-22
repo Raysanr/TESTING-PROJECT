@@ -298,6 +298,11 @@ class MapMatchGtfsShapes extends Command
         }
 
         $membersPart = substr($relationLine, strrpos($relationLine, ' ') + 1);
+
+        if (str_starts_with($membersPart, 'M')) {
+            $membersPart = substr($membersPart, 1);
+        }
+
         $wayIds = [];
 
         foreach (explode(',', $membersPart) as $member) {
