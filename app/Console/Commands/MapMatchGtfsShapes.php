@@ -23,32 +23,32 @@ class MapMatchGtfsShapes extends Command
     private const RAIL_ENDPOINT_SNAP_TOLERANCE_METERS = 5.0;
 
     /**
-     * Both directions of each line reuse the same OSM relation — the
-     * *original, pristine* GTFS shapes for a line's two shape_ids happen to
-     * be byte-identical already, so there's only one relation to source from,
-     * not two. But the two shape_ids still represent opposite REAL trip
-     * directions, while a relation's stitched way order is a single fixed
-     * direction. Verified by direct extraction
-     * (docs/superpowers/specs/2026-08-22-osm-rail-shape-extraction-design.md):
-     * each relation's stitched point order matches the existing GTFS shape's
-     * point order with zero gaps, but only for ONE of the two shape_ids in a
-     * pair. Only one shape_id per pair naturally matches that order
-     * (`reverse: false`); the other needs its extracted points run through
-     * `array_reverse()` before use (`reverse: true`), or OTP's stop-to-shape
-     * hop-geometry projection walks the shape backwards relative to the
-     * trip's stop sequence and silently falls back to
-     * straight-line-between-stops geometry for that direction. PNR (881953,
-     * 882086) is deliberately absent — no single clean OSM relation covers
-     * its extent, so it keeps falling through to the original-points
-     * fallback below.
+     * Only these 3 lines (6 shape_ids, 2 per line) have a single clean OSM
+     * route relation covering their real extent — verified by direct
+     * extraction (docs/superpowers/specs/2026-08-22-osm-rail-shape-extraction-design.md).
+     * PNR (881953, 882086) is deliberately absent: no single relation covers
+     * its actual extent, so its shapes fall through to the original-points
+     * path in processRailShapes() — oriented the same way as everything
+     * else via shapeDirectionEndpoints()/orientPolyline() below.
+     *
+     * A relation's stitched way order is a single fixed direction, but each
+     * line's two shape_ids represent opposite real trip directions — so both
+     * shape_ids below intentionally point at the SAME relation. Which one
+     * needs its points reversed is derived at runtime (orientPolyline(),
+     * against each shape's own trip's first/last stop via
+     * shapeDirectionEndpoints()), not hardcoded — an earlier version of this
+     * table hardcoded a `reverse` flag per shape_id, and a wrong flag once
+     * shipped silently reverting one direction to the original sparse
+     * geometry. Deriving it removes that failure mode and fixes the
+     * equivalent bug in PNR's pass-through shapes for free.
      */
     private const RAIL_SHAPE_TO_OSM_RELATION = [
-        '880869' => ['relation' => 8000253, 'reverse' => false], // MRT-3 (Taft Avenue -> North Avenue, matches relation order)
-        '882062' => ['relation' => 8000253, 'reverse' => true],  // MRT-3 (North Avenue -> Taft Avenue, opposite of relation order)
-        '882144' => ['relation' => 8000260, 'reverse' => false], // LRT-1 (Baclaran -> Roosevelt, matches relation order)
-        '882188' => ['relation' => 8000260, 'reverse' => true],  // LRT-1 (Roosevelt -> Baclaran, opposite of relation order)
-        '880814' => ['relation' => 8000264, 'reverse' => false], // LRT-2 (Recto -> Santolan, matches relation order)
-        '882116' => ['relation' => 8000264, 'reverse' => true],  // LRT-2 (Santolan -> Recto, opposite of relation order)
+        '880869' => 8000253, // MRT-3
+        '882062' => 8000253, // MRT-3 (opposite direction, same relation)
+        '882144' => 8000260, // LRT-1
+        '882188' => 8000260, // LRT-1 (opposite direction, same relation)
+        '880814' => 8000264, // LRT-2
+        '882116' => 8000264, // LRT-2 (opposite direction, same relation)
     ];
 
     private const CAR_MATCH_QUERY = <<<'GRAPHQL'
@@ -122,11 +122,13 @@ class MapMatchGtfsShapes extends Command
             return self::FAILURE;
         }
 
-        $this->info('Matching '.count($roadShapes).' bus/jeepney shapes against OTP ('.count($nonRoadShapes)." rail shapes left untouched — CAR-mode street routing doesn't apply to trains)...");
+        $this->info('Matching '.count($roadShapes).' bus/jeepney shapes against OTP ('.count($nonRoadShapes)." rail shapes handled separately — CAR-mode street routing doesn't apply to trains)...");
 
         [$matchedRoadShapes, $stats] = $this->buildMatchedShapes($roadShapes);
 
-        [$processedNonRoadShapes, $railStats] = $this->processRailShapes($osmPbfPath, $nonRoadShapes);
+        $directionEndpoints = $this->shapeDirectionEndpoints($extractedDir);
+
+        [$processedNonRoadShapes, $railStats] = $this->processRailShapes($osmPbfPath, $nonRoadShapes, $directionEndpoints);
 
         $stats['rail_extracted'] = $railStats['rail_extracted'];
         $stats['rail_fallback'] = $railStats['rail_fallback'];
@@ -165,7 +167,7 @@ class MapMatchGtfsShapes extends Command
 
     private function osmiumIsAvailable(): bool
     {
-        exec('which osmium', $output, $exitCode);
+        exec('command -v osmium', $output, $exitCode);
 
         return $exitCode === 0;
     }
@@ -297,9 +299,10 @@ class MapMatchGtfsShapes extends Command
 
         $opl = shell_exec(sprintf('osmium cat %s -f opl 2>/dev/null', escapeshellarg($relationPbf)));
         $relationLine = null;
+        $relationPrefix = 'r'.$relationId.' ';
 
         foreach (explode("\n", (string) $opl) as $line) {
-            if (str_starts_with($line, 'r')) {
+            if (str_starts_with($line, $relationPrefix)) {
                 $relationLine = $line;
 
                 break;
@@ -418,37 +421,166 @@ class MapMatchGtfsShapes extends Command
     }
 
     /**
-     * @param  array<string, list<array{lat: float, lon: float}>>  $nonRoadShapes
-     * @return array{0: array<string, list<array{lat: float, lon: float}>>, 1: array{rail_extracted: int, rail_fallback: int}}
+     * @return array<string, array{first: array{lat: float, lon: float}, last: array{lat: float, lon: float}}>
+     *         shape_id => that shape's representative trip's first/last stop
+     *         coordinates. Every shape_id in this feed is used by trips of
+     *         exactly one real travel direction (verified during design), so
+     *         one representative trip per shape_id is sufficient — this does
+     *         not attempt to reconcile multiple trips per shape_id that
+     *         disagree on direction.
      */
-    private function processRailShapes(string $osmPbfPath, array $nonRoadShapes): array
+    private function shapeDirectionEndpoints(string $extractedDir): array
     {
-        $processed = [];
-        $stats = ['rail_extracted' => 0, 'rail_fallback' => 0];
+        $stops = [];
+        $stopsHandle = fopen($extractedDir.'/stops.txt', 'r');
+        $stopsHeader = fgetcsv($stopsHandle, escape: '');
+        $stopIdIndex = array_search('stop_id', $stopsHeader);
+        $stopLatIndex = array_search('stop_lat', $stopsHeader);
+        $stopLonIndex = array_search('stop_lon', $stopsHeader);
 
-        foreach ($nonRoadShapes as $shapeId => $originalPoints) {
-            $mapping = self::RAIL_SHAPE_TO_OSM_RELATION[$shapeId] ?? null;
+        while (($row = fgetcsv($stopsHandle, escape: '')) !== false) {
+            $stops[$row[$stopIdIndex]] = ['lat' => (float) $row[$stopLatIndex], 'lon' => (float) $row[$stopLonIndex]];
+        }
 
-            if ($mapping === null) {
-                $processed[$shapeId] = $originalPoints;
+        fclose($stopsHandle);
 
+        $representativeTripIdByShapeId = [];
+        $tripsHandle = fopen($extractedDir.'/trips.txt', 'r');
+        $tripsHeader = fgetcsv($tripsHandle, escape: '');
+        $tripIdIndex = array_search('trip_id', $tripsHeader);
+        $tripShapeIdIndex = array_search('shape_id', $tripsHeader);
+
+        while (($row = fgetcsv($tripsHandle, escape: '')) !== false) {
+            $shapeId = $row[$tripShapeIdIndex] ?? '';
+
+            if ($shapeId !== '' && ! isset($representativeTripIdByShapeId[$shapeId])) {
+                $representativeTripIdByShapeId[$shapeId] = $row[$tripIdIndex];
+            }
+        }
+
+        fclose($tripsHandle);
+
+        $shapeIdByRepresentativeTripId = array_flip($representativeTripIdByShapeId);
+
+        $stopSequenceByTripId = [];
+        $stopTimesHandle = fopen($extractedDir.'/stop_times.txt', 'r');
+        $stopTimesHeader = fgetcsv($stopTimesHandle, escape: '');
+        $stTripIdIndex = array_search('trip_id', $stopTimesHeader);
+        $stStopIdIndex = array_search('stop_id', $stopTimesHeader);
+        $stSequenceIndex = array_search('stop_sequence', $stopTimesHeader);
+
+        while (($row = fgetcsv($stopTimesHandle, escape: '')) !== false) {
+            $tripId = $row[$stTripIdIndex];
+
+            if (! isset($shapeIdByRepresentativeTripId[$tripId])) {
                 continue;
             }
 
-            $extracted = $this->extractRailShape($osmPbfPath, $mapping['relation']);
+            $stopSequenceByTripId[$tripId][] = [
+                'sequence' => (int) $row[$stSequenceIndex],
+                'stop_id' => $row[$stStopIdIndex],
+            ];
+        }
 
-            if ($extracted === null) {
-                $this->warn("Rail extraction failed for shape {$shapeId} (relation {$mapping['relation']}) — keeping original GTFS points.");
-                $processed[$shapeId] = $originalPoints;
-                $stats['rail_fallback']++;
-            } else {
-                if ($mapping['reverse']) {
-                    $extracted = array_reverse($extracted);
+        fclose($stopTimesHandle);
+
+        $endpoints = [];
+
+        foreach ($representativeTripIdByShapeId as $shapeId => $tripId) {
+            $stopSequence = $stopSequenceByTripId[$tripId] ?? [];
+
+            if (empty($stopSequence)) {
+                continue;
+            }
+
+            usort($stopSequence, fn ($a, $b) => $a['sequence'] <=> $b['sequence']);
+
+            $firstStopId = $stopSequence[0]['stop_id'];
+            $lastStopId = $stopSequence[count($stopSequence) - 1]['stop_id'];
+
+            if (! isset($stops[$firstStopId]) || ! isset($stops[$lastStopId])) {
+                continue;
+            }
+
+            $endpoints[$shapeId] = ['first' => $stops[$firstStopId], 'last' => $stops[$lastStopId]];
+        }
+
+        return $endpoints;
+    }
+
+    /**
+     * Reorders $points so its start/end best match $firstStop/$lastStop,
+     * reversing if the reversed orientation's total endpoint distance is
+     * shorter. Used to correct a polyline's direction (whether freshly
+     * OSM-extracted or an original GTFS shape's own points) against the
+     * real travel direction of the trip that will use it — OTP's
+     * stop-to-shape hop-geometry projection needs the shape's point order to
+     * roughly follow the trip's stop sequence, or it silently falls back to
+     * straight-line-between-stops geometry.
+     *
+     * @param  list<array{lat: float, lon: float}>  $points
+     * @param  array{lat: float, lon: float}  $firstStop
+     * @param  array{lat: float, lon: float}  $lastStop
+     * @return list<array{lat: float, lon: float}>
+     */
+    private function orientPolyline(array $points, array $firstStop, array $lastStop): array
+    {
+        if (empty($points)) {
+            return $points;
+        }
+
+        $head = $points[0];
+        $tail = $points[count($points) - 1];
+
+        $forwardDistance = $this->haversineMeters($head['lat'], $head['lon'], $firstStop['lat'], $firstStop['lon'])
+            + $this->haversineMeters($tail['lat'], $tail['lon'], $lastStop['lat'], $lastStop['lon']);
+
+        $reversedDistance = $this->haversineMeters($head['lat'], $head['lon'], $lastStop['lat'], $lastStop['lon'])
+            + $this->haversineMeters($tail['lat'], $tail['lon'], $firstStop['lat'], $firstStop['lon']);
+
+        return $reversedDistance < $forwardDistance ? array_reverse($points) : $points;
+    }
+
+    /**
+     * @param  array<string, list<array{lat: float, lon: float}>>  $nonRoadShapes
+     * @param  array<string, array{first: array{lat: float, lon: float}, last: array{lat: float, lon: float}}>  $directionEndpoints
+     * @return array{0: array<string, list<array{lat: float, lon: float}>>, 1: array{rail_extracted: int, rail_fallback: int}}
+     */
+    private function processRailShapes(string $osmPbfPath, array $nonRoadShapes, array $directionEndpoints): array
+    {
+        $processed = [];
+        $stats = ['rail_extracted' => 0, 'rail_fallback' => 0];
+        $extractedByRelation = [];
+
+        foreach ($nonRoadShapes as $shapeId => $originalPoints) {
+            $relationId = self::RAIL_SHAPE_TO_OSM_RELATION[$shapeId] ?? null;
+            $points = $originalPoints;
+
+            if ($relationId !== null) {
+                if (! array_key_exists($relationId, $extractedByRelation)) {
+                    $extractedByRelation[$relationId] = $this->extractRailShape($osmPbfPath, $relationId);
                 }
 
-                $processed[$shapeId] = $extracted;
-                $stats['rail_extracted']++;
+                $extracted = $extractedByRelation[$relationId];
+
+                if ($extracted === null) {
+                    $this->warn("Rail extraction failed for shape {$shapeId} (relation {$relationId}) — keeping original GTFS points.");
+                    $stats['rail_fallback']++;
+                } else {
+                    $points = $extracted;
+                    $stats['rail_extracted']++;
+                }
             }
+
+            if (isset($directionEndpoints[$shapeId])) {
+                $points = $this->orientPolyline(
+                    $points,
+                    $directionEndpoints[$shapeId]['first'],
+                    $directionEndpoints[$shapeId]['last'],
+                );
+            }
+
+            $processed[$shapeId] = $points;
         }
 
         return [$processed, $stats];
