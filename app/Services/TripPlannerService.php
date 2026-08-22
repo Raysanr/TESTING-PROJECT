@@ -26,8 +26,8 @@ class TripPlannerService
                         startTime
                         endTime
                         distance
-                        from { name }
-                        to { name }
+                        from { name lat lon }
+                        to { name lat lon }
                         route { shortName longName }
                         legGeometry { points }
                     }
